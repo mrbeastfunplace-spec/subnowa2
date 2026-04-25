@@ -38,7 +38,7 @@ else:
 # CONFIG
 # =========================================================
 
-BOT_TOKEN = "8640666329:AAEvZDhBO72GVrnZI37y8bG3PRpV3yvNCGE"
+BOT_TOKEN = "8640666329:AAEuuWjXQKlk7Q3FME1CrMecsc0rl5eiMWA"
 
 ADMIN_IDS = [7716923294]
 
