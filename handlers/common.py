@@ -209,7 +209,7 @@ def payment_back_markup(order_id: int, language: str, support_url: str | None = 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def profile_markup(language: str, support_url: str | None = None, include_promo: bool = False) -> InlineKeyboardMarkup:
+def profile_markup(language: str, support_url: str | None = None, include_promo: bool = True) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text=_topup_label(language), callback_data="profile:topup")],
         [InlineKeyboardButton(text=_orders_label(language), callback_data="profile:orders")],

@@ -25,7 +25,7 @@ LEGACY_SCREEN_FLOW = {
     "capcut_details": ("buy_capcut_1m", "open_capcut", "menu"),
     "chatgpt_checkout": ("chatgpt_month_use_saved_gmail", "chatgpt_month_use_other_gmail", "chatgpt:check"),
     "trial_checkout": ("trial:check",),
-    "invoice": ("order:pay", "order:cancel", "menu"),
+    "invoice": ("order:pay", "order:promo", "order:cancel", "menu"),
 }
 
 PRODUCT_TITLES = {
@@ -852,6 +852,7 @@ def build_invoice_markup(language: str | None, order_id: int, payment_methods: I
         if payment_id is None:
             continue
         rows.append([InlineKeyboardButton(text=text(language, label_key), callback_data=f"order:pay:{order_id}:{payment_id}", style="success")])
+    rows.append([InlineKeyboardButton(text=text(language, "btn_promocode"), callback_data=f"order:promo:{order_id}")])
     rows.append(
         [
             InlineKeyboardButton(text=text(language, "btn_cancel"), callback_data=f"order:cancel:{order_id}", style="danger"),
