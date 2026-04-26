@@ -5,6 +5,8 @@ from typing import Iterable
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from services.texts import normalize_language
+
 
 EMOJI_ID_CHATGPT = "5359726582447487916"
 EMOJI_ID_CAPCUT = "5364339557712020484"
@@ -23,7 +25,7 @@ LEGACY_SCREEN_FLOW = {
     "capcut_details": ("buy_capcut_1m", "open_capcut", "menu"),
     "chatgpt_checkout": ("chatgpt_month_use_saved_gmail", "chatgpt_month_use_other_gmail", "chatgpt:check"),
     "trial_checkout": ("trial:check",),
-    "invoice": ("order:pay", "order:promo", "order:cancel", "menu"),
+    "invoice": ("order:pay", "order:cancel", "menu"),
 }
 
 PRODUCT_TITLES = {
@@ -372,6 +374,9 @@ TEXTS = {
     },
 }
 
+if not TEXTS.get("uz"):
+    TEXTS["uz"] = dict(PRICE_HINTS.get("uz", {}))
+
 
 for language_code, title_updates in {
     "ru": {
@@ -694,7 +699,42 @@ def payment_instruction_text(
         "wallet": wallet,
     }
     if payment_code == "click":
-        return text(language, "pay_click_text", **payload)
+        language = normalize_language(language)
+        if language == "uz":
+            return (
+                f"Buyurtma: {payload['order_number']}\n"
+                f"Mahsulot: {payload['product_name']}\n"
+                f"Narxi: {payload['price_uzs']} so'm\n\n"
+                "To'lov uchun:\n"
+                "1. Click ilovasini oching\n"
+                "2. QR kodni skaner qiling\n"
+                f"3. {payload['price_uzs']} so'm summani kiriting\n"
+                "4. To'lovni tasdiqlang\n\n"
+                "To'lovdan keyin chekni ushbu botga yuboring."
+            )
+        if language == "en":
+            return (
+                f"Order: {payload['order_number']}\n"
+                f"Product: {payload['product_name']}\n"
+                f"Price: {payload['price_uzs']} UZS\n\n"
+                "To pay:\n"
+                "1. Open Click\n"
+                "2. Scan the QR code\n"
+                f"3. Enter the amount {payload['price_uzs']} UZS\n"
+                "4. Confirm the payment\n\n"
+                "After payment, send the receipt to this bot."
+            )
+        return (
+            f"Заказ: {payload['order_number']}\n"
+            f"Товар: {payload['product_name']}\n"
+            f"Стоимость: {payload['price_uzs']} сум\n\n"
+            "Для оплаты:\n"
+            "1. Откройте Click\n"
+            "2. Отсканируйте Qrcod\n"
+            f"3. Ведите сумму {payload['price_uzs']} сум\n"
+            "4. Подтвердите оплату\n\n"
+            "После оплаты отправьте чек в этот бот."
+        )
     if payment_code == "card":
         return text(language, "pay_card_text", **payload)
     return text(language, "pay_crypto_text", **payload)
@@ -812,7 +852,6 @@ def build_invoice_markup(language: str | None, order_id: int, payment_methods: I
         if payment_id is None:
             continue
         rows.append([InlineKeyboardButton(text=text(language, label_key), callback_data=f"order:pay:{order_id}:{payment_id}", style="success")])
-    rows.append([InlineKeyboardButton(text=text(language, "btn_promocode"), callback_data=f"order:promo:{order_id}")])
     rows.append(
         [
             InlineKeyboardButton(text=text(language, "btn_cancel"), callback_data=f"order:cancel:{order_id}", style="danger"),

@@ -186,8 +186,6 @@ def payment_methods_markup(
         [InlineKeyboardButton(text=payment_title(method, language), callback_data=f"order:pay:{order_id}:{method.id}", style="success")]
         for method in methods
     ]
-    if allow_promo:
-        rows.append([InlineKeyboardButton(text=_promo_invoice_label(language), callback_data=f"order:promo:{order_id}")])
     rows.append(
         [
             InlineKeyboardButton(text=_cancel_label(language), callback_data=f"order:cancel:{order_id}", style="danger"),
@@ -211,7 +209,7 @@ def payment_back_markup(order_id: int, language: str, support_url: str | None = 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def profile_markup(language: str, support_url: str | None = None, include_promo: bool = True) -> InlineKeyboardMarkup:
+def profile_markup(language: str, support_url: str | None = None, include_promo: bool = False) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text=_topup_label(language), callback_data="profile:topup")],
         [InlineKeyboardButton(text=_orders_label(language), callback_data="profile:orders")],

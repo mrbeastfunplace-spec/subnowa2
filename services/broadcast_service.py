@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from dataclasses import dataclass
 
 from aiogram import Bot
@@ -10,6 +12,7 @@ from sqlalchemy import select
 from db.base import BroadcastButtonType, BroadcastKind, BroadcastStatus, utcnow
 from db.broadcast_queries import get_broadcast
 from db.models import User
+from services.texts import normalize_language
 from utils.logger import get_logger
 
 
@@ -25,6 +28,8 @@ class BroadcastDraftPayload:
 
 _LOGGER = get_logger("services.broadcast")
 _ACTIVE_BROADCAST_TASKS: dict[int, asyncio.Task[None]] = {}
+_BROADCAST_LANGUAGES: tuple[str, ...] = ("ru", "uz", "en")
+_BROADCAST_LANG_PATTERN = re.compile(r"^(ru|uz|en)\s*:\s*(.*)$", re.IGNORECASE)
 
 _INTERNAL_ACTIONS: tuple[tuple[str, str, str], ...] = (
     ("subscriptions", "Открыть подписки", "open_subscriptions"),
@@ -47,39 +52,148 @@ def get_internal_action_callback(action_id: str) -> str | None:
     return None
 
 
+def pack_broadcast_value(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    translations = _parse_multilingual_input(value)
+    if not translations:
+        return value
+    return json.dumps(translations, ensure_ascii=False, separators=(",", ":"))
+
+
+def resolve_broadcast_value(raw_value: str | None, language: str) -> str:
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+    translations = _parse_packed_translations(value)
+    if not translations:
+        return value
+    normalized_language = normalize_language(language)
+    return (
+        translations.get(normalized_language)
+        or translations.get("ru")
+        or translations.get("uz")
+        or translations.get("en")
+        or value
+    )
+
+
+def broadcast_has_translations(raw_value: str | None) -> bool:
+    return _parse_packed_translations(raw_value) is not None
+
+
+def _parse_multilingual_input(raw_value: str) -> dict[str, str] | None:
+    if not raw_value:
+        return None
+    lines = raw_value.splitlines()
+    translations: dict[str, str] = {}
+    current_language: str | None = None
+    buffer: list[str] = []
+
+    for line in lines:
+        match = _BROADCAST_LANG_PATTERN.match(line.strip())
+        if match:
+            if current_language is not None:
+                text = "\n".join(buffer).strip()
+                if text:
+                    translations[current_language] = text
+            current_language = match.group(1).lower()
+            inline_value = match.group(2)
+            buffer = [inline_value] if inline_value else []
+            continue
+
+        if current_language is None:
+            if line.strip():
+                return None
+            continue
+
+        buffer.append(line)
+
+    if current_language is None:
+        return None
+
+    text = "\n".join(buffer).strip()
+    if text:
+        translations[current_language] = text
+
+    if not translations:
+        return None
+
+    ordered_translations: dict[str, str] = {}
+    for language in _BROADCAST_LANGUAGES:
+        candidate = (translations.get(language) or "").strip()
+        if candidate:
+            ordered_translations[language] = candidate
+    return ordered_translations or None
+
+
+def _parse_packed_translations(raw_value: str | None) -> dict[str, str] | None:
+    value = (raw_value or "").strip()
+    if not value or not value.startswith("{"):
+        return None
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    translations: dict[str, str] = {}
+    for language in _BROADCAST_LANGUAGES:
+        candidate = payload.get(language)
+        if isinstance(candidate, str) and candidate.strip():
+            translations[language] = candidate.strip()
+    return translations or None
+
+
 def build_broadcast_markup(
     button_type: BroadcastButtonType,
     button_text: str | None,
     button_value: str | None,
+    *,
+    language: str = "ru",
 ) -> InlineKeyboardMarkup | None:
-    if button_type == BroadcastButtonType.NONE or not button_text:
+    localized_button_text = resolve_broadcast_value(button_text, language)
+    if button_type == BroadcastButtonType.NONE or not localized_button_text:
         return None
     if button_type == BroadcastButtonType.URL and button_value:
-        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=button_text, url=button_value)]])
+        return InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text=localized_button_text, url=button_value)]]
+        )
     if button_type == BroadcastButtonType.INTERNAL_ACTION and button_value:
         callback_data = get_internal_action_callback(button_value)
         if callback_data:
             return InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text=button_text, callback_data=callback_data)]]
+                inline_keyboard=[[InlineKeyboardButton(text=localized_button_text, callback_data=callback_data)]]
             )
     return None
 
 
-async def send_broadcast_preview(bot: Bot, chat_id: int, payload: BroadcastDraftPayload) -> None:
-    reply_markup = build_broadcast_markup(payload.button_type, payload.button_text, payload.button_value)
+async def send_broadcast_preview(
+    bot: Bot,
+    chat_id: int,
+    payload: BroadcastDraftPayload,
+    *,
+    language: str = "ru",
+) -> None:
+    message_text = resolve_broadcast_value(payload.message_text, language)
+    reply_markup = build_broadcast_markup(
+        payload.button_type,
+        payload.button_text,
+        payload.button_value,
+        language=language,
+    )
     if payload.broadcast_type == BroadcastKind.PHOTO and payload.photo_file_id:
         await bot.send_photo(
             chat_id,
             photo=payload.photo_file_id,
-            caption=payload.message_text or None,
+            caption=message_text or None,
             reply_markup=reply_markup,
         )
         return
-    await bot.send_message(chat_id, payload.message_text or "-", reply_markup=reply_markup)
+    await bot.send_message(chat_id, message_text or "-", reply_markup=reply_markup)
 
 
-def short_broadcast_text(text: str, *, limit: int = 48) -> str:
-    normalized = " ".join((text or "").split())
+def short_broadcast_text(text: str, *, language: str = "ru", limit: int = 48) -> str:
+    normalized = " ".join(resolve_broadcast_value(text, language).split())
     if len(normalized) <= limit:
         return normalized or "Без текста"
     return normalized[: limit - 1].rstrip() + "…"
@@ -101,7 +215,7 @@ async def _run_broadcast_delivery(app, bot: Bot, broadcast_id: int) -> None:
         broadcast = await get_broadcast(session, broadcast_id)
         if broadcast is None:
             return
-        recipients = list(await session.scalars(select(User.telegram_id).order_by(User.id)))
+        recipients = list(await session.execute(select(User.telegram_id, User.language).order_by(User.id)))
         broadcast.total_recipients = len(recipients)
         broadcast.success_count = 0
         broadcast.failed_count = 0
@@ -116,23 +230,32 @@ async def _run_broadcast_delivery(app, bot: Bot, broadcast_id: int) -> None:
             button_value=broadcast.button_value,
         )
 
-    reply_markup = build_broadcast_markup(payload.button_type, payload.button_text, payload.button_value)
     success_count = 0
     failed_count = 0
 
-    for index, telegram_id in enumerate(recipients, start=1):
+    for index, recipient in enumerate(recipients, start=1):
+        telegram_id = recipient[0]
+        language_enum = recipient[1]
+        language = normalize_language(language_enum.value if language_enum else None)
+        message_text = resolve_broadcast_value(payload.message_text, language)
+        reply_markup = build_broadcast_markup(
+            payload.button_type,
+            payload.button_text,
+            payload.button_value,
+            language=language,
+        )
         try:
             if payload.broadcast_type == BroadcastKind.PHOTO and payload.photo_file_id:
                 await bot.send_photo(
                     telegram_id,
                     photo=payload.photo_file_id,
-                    caption=payload.message_text or None,
+                    caption=message_text or None,
                     reply_markup=reply_markup,
                 )
             else:
                 await bot.send_message(
                     telegram_id,
-                    payload.message_text or "-",
+                    message_text or "-",
                     reply_markup=reply_markup,
                 )
             success_count += 1

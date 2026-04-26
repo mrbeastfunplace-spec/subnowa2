@@ -44,6 +44,7 @@ from services.orders import attach_payment_method, change_status, create_custom_
 from services.payments import get_payment_method, list_product_payment_methods
 from services.purchases import execute_checkout
 from services.settings import get_setting
+from services.texts import format_text
 from services.users import get_last_chatgpt_gmail, get_user_by_telegram_id, get_user_language, touch_user, user_has_trial
 from states import UserFlowState
 from utils.formatting import format_money, user_display_name
@@ -258,6 +259,8 @@ async def _start_balance_checkout(
             available = await count_available_inventory(session, product.id)
             if available <= 0:
                 await callback.answer()
+                await answer_or_edit(callback, _processed_checkout_text(language))
+                return
                 await answer_or_edit(
                     callback,
                     "❌ Сейчас нет доступных готовых вариантов\n\nВы можете выбрать другой вариант или обратиться в поддержку.",
@@ -265,6 +268,315 @@ async def _start_balance_checkout(
                         inline_keyboard=[
                             [InlineKeyboardButton(text="👤 Личный вариант", callback_data=alternate_callback or back_callback)],
                             [InlineKeyboardButton(text="💬 Поддержка", url=app.settings.support_url)],
+                            [InlineKeyboardButton(text=ui_text(language, "btn_back"), callback_data=back_callback, style="danger")],
+                            [InlineKeyboardButton(text=ui_text(language, "btn_menu"), callback_data="menu:main")],
+                        ]
+                    ),
+                )
+                return
+        if Decimal(str(user.balance)) < Decimal(str(product.price)):
+            await callback.answer()
+            await answer_or_edit(
+                callback,
+                _insufficient_balance_text(product, user.balance, language),
+                reply_markup=insufficient_balance_markup(language, back_callback),
+            )
+            return
+        checkout = await create_checkout_session(
+            session,
+            user=user,
+            product=product,
+            payload={
+                **(payload or {}),
+                "back_callback": back_callback,
+                "alternate_callback": alternate_callback or "",
+            },
+        )
+        await session.commit()
+    await state.clear()
+    await callback.answer()
+    await answer_or_edit(
+        callback,
+        _checkout_confirmation_text(product, user.balance, language),
+        reply_markup=purchase_confirmation_markup(checkout.id, language),
+    )
+
+
+def _sum_text(value: Decimal | int | float | str, language: str = "ru") -> str:
+    amount_text = format_money(value, "сум").replace(" сум", "")
+    if language == "uz":
+        return f"{amount_text} so'm"
+    if language == "en":
+        return f"{amount_text} UZS"
+    return f"{amount_text} сум"
+
+
+def _promo_success_text(language: str, new_balance) -> str:
+    balance_text = _sum_text(new_balance, language)
+    if language == "uz":
+        return (
+            "✅ Promokod faollashtirildi\n\n"
+            "💰 Balansingizga 20 000 so'm qo'shildi\n"
+            f"💳 Yangi balans: {balance_text}"
+        )
+    if language == "en":
+        return (
+            "✅ Promo code activated\n\n"
+            "💰 20 000 UZS has been added to your balance\n"
+            f"💳 New balance: {balance_text}"
+        )
+    return (
+        "✅ Промокод активирован\n\n"
+        "💰 На ваш баланс зачислено: 20 000 сум\n"
+        f"💳 Ваш новый баланс: {balance_text}"
+    )
+
+
+def _personal_variant_text(language: str) -> str:
+    if language == "uz":
+        return "👤 Shaxsiy variant"
+    if language == "en":
+        return "👤 Personal option"
+    return "👤 Личный вариант"
+
+
+def _support_button_text(language: str) -> str:
+    if language == "uz":
+        return "💬 Yordam"
+    if language == "en":
+        return "💬 Support"
+    return "💬 Поддержка"
+
+
+def _topup_button_text(language: str) -> str:
+    if language == "uz":
+        return "💳 Balansni to'ldirish"
+    if language == "en":
+        return "💳 Top up balance"
+    return "💳 Пополнить баланс"
+
+
+def _processed_checkout_text(language: str) -> str:
+    if language == "uz":
+        return "⚠️ Bu buyurtma allaqachon qayta ishlangan\n\n“Buyurtmalarim” bo'limini tekshiring."
+    if language == "en":
+        return "⚠️ This order has already been processed\n\nPlease check the “My orders” section."
+    return "⚠️ Этот заказ уже обработан\n\nПроверьте раздел “Мои заказы”."
+
+
+def _stock_empty_balance_text(language: str) -> str:
+    if language == "uz":
+        return "❌ Hozir tayyor variantlar mavjud emas\n\nBoshqa variantni tanlashingiz yoki yordamga yozishingiz mumkin."
+    if language == "en":
+        return "❌ There are no ready-made options available right now\n\nYou can choose another option or contact support."
+    return "❌ Сейчас нет доступных готовых вариантов\n\nВы можете выбрать другой вариант или обратиться в поддержку."
+
+
+def _purchase_cancelled_text(language: str) -> str:
+    if language == "uz":
+        return "❌ Xarid bekor qilindi\n\nBalansdan pul yechilmadi."
+    if language == "en":
+        return "❌ Purchase cancelled\n\nNo money was charged from your balance."
+    return "❌ Покупка отменена\n\nДеньги с баланса не списаны."
+
+
+def _promo_invalid_text(language: str) -> str:
+    if language == "uz":
+        return "Afsuski, bunday promokod mavjud emas."
+    if language == "en":
+        return "Unfortunately, this promo code does not exist."
+    return "К сожалению, такого промокода не существует."
+
+
+def _promo_profile_text(language: str, display_name: str, telegram_id: int) -> str:
+    if language == "uz":
+        return f"<b>👤 Profilingiz</b>\n\nFoydalanuvchi: <b>{display_name}</b>\nID: <code>{telegram_id}</code>"
+    if language == "en":
+        return f"<b>👤 Your profile</b>\n\nUser: <b>{display_name}</b>\nID: <code>{telegram_id}</code>"
+    return f"<b>👤 Ваш профиль</b>\n\nПользователь: <b>{display_name}</b>\nID: <code>{telegram_id}</code>"
+
+
+def _chatgpt_variant_markup(language: str, personal_product, ready_product) -> InlineKeyboardMarkup:
+    ready_callback = f"buy_balance:{ready_product.id}" if ready_product is not None else "chatgpt_1m"
+    personal_price = _sum_text(personal_product.price if personal_product is not None else 79000, language)
+    ready_price = _sum_text(ready_product.price if ready_product is not None else 49000, language)
+    personal_text = "👤 Shaxsiy akkaunt" if language == "uz" else ("👤 Personal account" if language == "en" else "👤 Личный аккаунт")
+    ready_text = "📦 Tayyor akkaunt" if language == "uz" else ("📦 Ready account" if language == "en" else "📦 Готовый аккаунт")
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"{personal_text} — {personal_price}", callback_data="buy_chatgpt_1m", style="success")],
+            [InlineKeyboardButton(text=f"{ready_text} — {ready_price}", callback_data=ready_callback, style="success")],
+            [
+                InlineKeyboardButton(text=ui_text(language, "btn_back"), callback_data="open_chatgpt", style="danger"),
+                InlineKeyboardButton(text=ui_text(language, "btn_menu"), callback_data="menu:main"),
+            ],
+        ]
+    )
+
+
+def _insufficient_balance_text(product, balance_amount, language: str) -> str:
+    missing = max(Decimal(str(product.price)) - Decimal(str(balance_amount)), Decimal("0.00"))
+    if language == "uz":
+        return (
+            "❌ Mablag' yetarli emas\n\n"
+            f"💎 Mahsulot: {escape(service_name(product, language))}\n"
+            f"📦 Variant: {escape(product_type_label(product, language))}\n"
+            f"💰 Narx: {_sum_text(product.price, language)}\n"
+            f"💳 Balansingiz: {_sum_text(balance_amount, language)}\n"
+            f"➖ Yetishmaydi: {_sum_text(missing, language)}\n\n"
+            "Buyurtmani davom ettirish uchun balansni to'ldiring."
+        )
+    if language == "en":
+        return (
+            "❌ Insufficient funds\n\n"
+            f"💎 Product: {escape(service_name(product, language))}\n"
+            f"📦 Option: {escape(product_type_label(product, language))}\n"
+            f"💰 Price: {_sum_text(product.price, language)}\n"
+            f"💳 Your balance: {_sum_text(balance_amount, language)}\n"
+            f"➖ Missing: {_sum_text(missing, language)}\n\n"
+            "Top up your balance to continue the checkout."
+        )
+    return (
+        "❌ Недостаточно средств\n\n"
+        f"💎 Товар: {escape(service_name(product, language))}\n"
+        f"📦 Вариант: {escape(product_type_label(product, language))}\n"
+        f"💰 Цена: {_sum_text(product.price, language)}\n"
+        f"💳 Ваш баланс: {_sum_text(balance_amount, language)}\n"
+        f"➖ Не хватает: {_sum_text(missing, language)}\n\n"
+        "Пополните баланс, чтобы продолжить оформление заказа."
+    )
+
+
+def _checkout_confirmation_text(product, balance_amount, language: str) -> str:
+    balance_after = Decimal(str(balance_amount)) - Decimal(str(product.price))
+    if language == "uz":
+        return (
+            "✅ Xaridni tasdiqlash\n\n"
+            f"💎 Mahsulot: {escape(service_name(product, language))}\n"
+            f"📦 Variant: {escape(product_type_label(product, language))}\n"
+            f"💰 Narx: {_sum_text(product.price, language)}\n"
+            f"💳 Balansingiz: {_sum_text(balance_amount, language)}\n\n"
+            f"Tasdiqlangandan keyin balansingizdan yechiladi:\n➖ {_sum_text(product.price, language)}\n\n"
+            "To'lovdan keyingi qoldiq:\n"
+            f"💰 {_sum_text(balance_after, language)}\n\n"
+            "Xaridni tasdiqlaysizmi?"
+        )
+    if language == "en":
+        return (
+            "✅ Purchase confirmation\n\n"
+            f"💎 Product: {escape(service_name(product, language))}\n"
+            f"📦 Option: {escape(product_type_label(product, language))}\n"
+            f"💰 Price: {_sum_text(product.price, language)}\n"
+            f"💳 Your balance: {_sum_text(balance_amount, language)}\n\n"
+            f"After confirmation, this amount will be charged from your balance:\n➖ {_sum_text(product.price, language)}\n\n"
+            "Balance after payment:\n"
+            f"💰 {_sum_text(balance_after, language)}\n\n"
+            "Do you confirm the purchase?"
+        )
+    return (
+        "✅ Подтверждение покупки\n\n"
+        f"💎 Товар: {escape(service_name(product, language))}\n"
+        f"📦 Вариант: {escape(product_type_label(product, language))}\n"
+        f"💰 Цена: {_sum_text(product.price, language)}\n"
+        f"💳 Ваш баланс: {_sum_text(balance_amount, language)}\n\n"
+        f"После подтверждения с вашего баланса будет списано:\n➖ {_sum_text(product.price, language)}\n\n"
+        "Остаток после оплаты:\n"
+        f"💰 {_sum_text(balance_after, language)}\n\n"
+        "Подтверждаете покупку?"
+    )
+
+
+def _processing_paid_text(order, balance_after, language: str = "ru") -> str:
+    if language == "uz":
+        return (
+            "✅ To'lov muvaffaqiyatli o'tdi\n\n"
+            f"💎 Xizmat: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
+            f"📦 Variant: {escape(order.product_type_snapshot or '-')}\n"
+            f"💰 Yechildi: {_sum_text(order.amount, language)}\n"
+            f"💳 Qoldiq: {_sum_text(balance_after, language)}\n\n"
+            "Buyurtmangiz qayta ishlashga yuborildi.\nAdministrator tasdig'ini kuting."
+        )
+    if language == "en":
+        return (
+            "✅ Payment completed successfully\n\n"
+            f"💎 Service: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
+            f"📦 Option: {escape(order.product_type_snapshot or '-')}\n"
+            f"💰 Charged: {_sum_text(order.amount, language)}\n"
+            f"💳 Remaining balance: {_sum_text(balance_after, language)}\n\n"
+            "Your order has been sent for processing.\nPlease wait for the administrator confirmation."
+        )
+    return (
+        "✅ Оплата прошла успешно\n\n"
+        f"💎 Сервис: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
+        f"📦 Вариант: {escape(order.product_type_snapshot or '-')}\n"
+        f"💰 Списано: {_sum_text(order.amount, language)}\n"
+        f"💳 Остаток: {_sum_text(balance_after, language)}\n\n"
+        "Ваш заказ принят в обработку.\nОжидайте подтверждения администратора."
+    )
+
+
+def _ready_paid_text(order, balance_after, delivery_content: str, language: str = "ru") -> str:
+    if language == "uz":
+        return (
+            "✅ Buyurtmangiz tasdiqlandi\n\n"
+            f"💎 Xizmat: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
+            f"📦 Turi: {escape(order.product_type_snapshot or '-')}\n"
+            f"💰 Yechildi: {_sum_text(order.amount, language)}\n"
+            f"💳 Qoldiq: {_sum_text(balance_after, language)}\n\n"
+            "Buyurtma ma'lumotlari:\n"
+            f"{escape(delivery_content)}\n\n"
+            "Xaridingiz uchun rahmat!"
+        )
+    if language == "en":
+        return (
+            "✅ Your order has been confirmed\n\n"
+            f"💎 Service: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
+            f"📦 Type: {escape(order.product_type_snapshot or '-')}\n"
+            f"💰 Charged: {_sum_text(order.amount, language)}\n"
+            f"💳 Remaining balance: {_sum_text(balance_after, language)}\n\n"
+            "Order details:\n"
+            f"{escape(delivery_content)}\n\n"
+            "Thank you for your purchase!"
+        )
+    return (
+        "✅ Ваш заказ подтверждён\n\n"
+        f"💎 Сервис: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
+        f"📦 Тип: {escape(order.product_type_snapshot or '-')}\n"
+        f"💰 Списано: {_sum_text(order.amount, language)}\n"
+        f"💳 Остаток: {_sum_text(balance_after, language)}\n\n"
+        "Данные по заказу:\n"
+        f"{escape(delivery_content)}\n\n"
+        "Спасибо за покупку!"
+    )
+
+
+async def _start_balance_checkout(
+    callback: CallbackQuery,
+    state: FSMContext,
+    app: AppContext,
+    *,
+    product,
+    language: str,
+    payload: dict | None = None,
+    back_callback: str,
+    alternate_callback: str | None = None,
+) -> None:
+    async with app.session_factory() as session:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        if user is None:
+            await callback.answer()
+            return
+        if (product.product_type or "") == "ready_access":
+            available = await count_available_inventory(session, product.id)
+            if available <= 0:
+                await callback.answer()
+                await answer_or_edit(
+                    callback,
+                    _stock_empty_balance_text(language),
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text=_personal_variant_text(language), callback_data=alternate_callback or back_callback)],
+                            [InlineKeyboardButton(text=_support_button_text(language), url=app.settings.support_url)],
                             [InlineKeyboardButton(text=ui_text(language, "btn_back"), callback_data=back_callback, style="danger")],
                             [InlineKeyboardButton(text=ui_text(language, "btn_menu"), callback_data="menu:main")],
                         ]
@@ -766,19 +1078,26 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
     async def checkout_pay_handler(callback: CallbackQuery) -> None:
         checkout_id = int(callback.data.split(":")[-1])
         async with app.session_factory() as session:
+            language = await get_user_language(session, callback.from_user.id, app.settings.default_language)
             checkout = await get_checkout_session(session, checkout_id)
             if checkout is None:
                 await callback.answer()
-                await answer_or_edit(callback, "⚠️ Этот заказ уже обработан\n\nПроверьте раздел “Мои заказы”.")
+                await answer_or_edit(callback, _processed_checkout_text(language))
+                return
+                await answer_or_edit(callback, _processed_checkout_text(language))
                 return
             if checkout.status == CheckoutSessionStatus.COMPLETED:
                 await callback.answer()
-                await answer_or_edit(callback, "⚠️ Этот заказ уже обработан\n\nПроверьте раздел “Мои заказы”.")
+                await answer_or_edit(callback, _processed_checkout_text(language))
+                return
+                await answer_or_edit(callback, _processed_checkout_text(language))
                 return
             if not await claim_checkout_processing(session, checkout_id):
                 await session.commit()
                 await callback.answer()
-                await answer_or_edit(callback, "⚠️ Этот заказ уже обработан\n\nПроверьте раздел “Мои заказы”.")
+                await answer_or_edit(callback, _processed_checkout_text(language))
+                return
+                await answer_or_edit(callback, _processed_checkout_text(language))
                 return
             language = await get_user_language(session, callback.from_user.id, app.settings.default_language)
             result = await execute_checkout(session, checkout_id=checkout_id, language=language)
@@ -789,10 +1108,21 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
             if result.reason == "stock_empty":
                 await answer_or_edit(
                     callback,
-                    "❌ Сейчас нет доступных готовых вариантов\n\nВы можете выбрать другой вариант или обратиться в поддержку.",
+                    _stock_empty_balance_text(language),
                     reply_markup=InlineKeyboardMarkup(
                         inline_keyboard=[
-                            [InlineKeyboardButton(text="💳 Пополнить баланс", callback_data="profile:topup")],
+                            [InlineKeyboardButton(text=_topup_button_text(language), callback_data="profile:topup")],
+                            [InlineKeyboardButton(text=ui_text(language, "btn_menu"), callback_data="menu:main")],
+                        ]
+                    ),
+                )
+                return
+                await answer_or_edit(
+                    callback,
+                    _stock_empty_balance_text(language),
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(text=_topup_button_text(language), callback_data="profile:topup")],
                             [InlineKeyboardButton(text=ui_text(language, "btn_menu"), callback_data="menu:main")],
                         ]
                     ),
@@ -806,21 +1136,21 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
                     reply_markup=insufficient_balance_markup(language, back_callback),
                 )
                 return
-            await answer_or_edit(callback, "⚠️ Этот заказ уже обработан\n\nПроверьте раздел “Мои заказы”.")
+            await answer_or_edit(callback, _processed_checkout_text(language))
             return
 
         await callback.answer()
         if result.reason == "completed":
             await answer_or_edit(
                 callback,
-                _ready_paid_text(result.order, result.user.balance, result.delivery_content or ""),
+                _ready_paid_text(result.order, result.user.balance, result.delivery_content or "", language),
                 reply_markup=build_menu_only_markup(language),
             )
             return
 
         await answer_or_edit(
             callback,
-            _processing_paid_text(result.order, result.user.balance),
+            _processing_paid_text(result.order, result.user.balance, language),
             reply_markup=build_menu_only_markup(language),
         )
         await _notify_admin_paid_balance_order(bot, app, result.order, result.user)
@@ -838,7 +1168,7 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
         await callback.answer()
         await answer_or_edit(
             callback,
-            "❌ Покупка отменена\n\nДеньги с баланса не списаны.",
+            _purchase_cancelled_text(language),
             reply_markup=build_menu_only_markup(language),
         )
 
@@ -916,6 +1246,7 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
         order_id = int(callback.data.split(":")[-1])
         async with app.session_factory() as session:
             language = await get_user_language(session, callback.from_user.id, app.settings.default_language)
+            prompt = await format_text(session, "user.promo_enter", language, fallback="Введите промокод.")
             order = await get_order_by_id(session, order_id)
             if order is None or order.product is None:
                 await callback.answer()
@@ -929,12 +1260,19 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
         order_id = int(callback.data.split(":")[-1])
         async with app.session_factory() as session:
             language = await get_user_language(session, callback.from_user.id, app.settings.default_language)
+            prompt = await format_text(session, "user.promo_enter", language, fallback="Введите промокод.")
         await state.set_state(UserFlowState.waiting_promo_code)
         await state.update_data(promo_return=f"payment:{order_id}")
         await callback.answer()
         await answer_or_edit(
             callback,
-            "Введите промокод.",
+            prompt,
+            reply_markup=build_single_back_markup(language, f"order:payment_methods:{order_id}"),
+        )
+        return
+        await answer_or_edit(
+            callback,
+            prompt,
             reply_markup=build_single_back_markup(language, f"order:payment_methods:{order_id}"),
         )
 
@@ -975,12 +1313,11 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
                     reply_markup=_promo_purchase_markup(language),
                 )
                 return
-            await message.answer("К сожалению, такого промокода не существует.")
+            await message.answer(_promo_invalid_text(language))
             if return_to == "profile":
                 display_name = escape(user_display_name(message.from_user, message.from_user.id))
                 await message.answer(
-                    "<b>👤 Ваш профиль</b>\n\n"
-                    f"Пользователь: <b>{display_name}</b>\nID: <code>{message.from_user.id}</code>",
+                    _promo_profile_text(language, display_name, message.from_user.id),
                     reply_markup=profile_markup(language, app.settings.support_url),
                 )
                 return

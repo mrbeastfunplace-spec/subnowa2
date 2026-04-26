@@ -8,12 +8,16 @@ from db.base import BroadcastButtonType, BroadcastKind, BroadcastStatus
 from db.broadcast_queries import get_broadcast, list_broadcasts, save_broadcast_draft
 from services.broadcast_service import (
     BroadcastDraftPayload,
+    broadcast_has_translations,
     list_internal_actions,
+    pack_broadcast_value,
+    resolve_broadcast_value,
     send_broadcast_preview,
     short_broadcast_text,
     start_broadcast_delivery,
 )
 from services.context import AppContext
+from services.users import get_user_language
 from states import AdminBroadcastState
 from utils.messages import answer_or_edit
 
@@ -26,6 +30,20 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
 
     def _internal_actions_map() -> dict[str, str]:
         return {action_id: label for action_id, label in list_internal_actions()}
+
+    async def _admin_language(admin_telegram_id: int) -> str:
+        async with app.session_factory() as session:
+            return await get_user_language(session, admin_telegram_id, app.settings.default_language)
+
+    def _multilingual_prompt(subject: str) -> str:
+        return (
+            f"{subject}\n\n"
+            "Можно отправить один общий текст для всех пользователей.\n\n"
+            "Если нужна рассылка по языку пользователя, отправьте текст в формате:\n"
+            "ru: Русский текст\n\n"
+            "uz: O'zbekcha matn\n\n"
+            "en: English text"
+        )
 
     def _menu_markup() -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
@@ -128,13 +146,16 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         }[status]
 
     def _button_label(button_type: BroadcastButtonType, button_text: str | None, button_value: str | None) -> str:
+        label_text = resolve_broadcast_value(button_text, "ru") or "-"
+        if broadcast_has_translations(button_text):
+            label_text = f"multi | {label_text}"
         if button_type == BroadcastButtonType.NONE:
             return "без кнопки"
         if button_type == BroadcastButtonType.URL:
-            return f"url | {button_text or '-'} -> {button_value or '-'}"
+            return f"url | {label_text} -> {button_value or '-'}"
         if button_type == BroadcastButtonType.INTERNAL_ACTION:
             action_label = _internal_actions_map().get(button_value or "", button_value or "-")
-            return f"internal | {button_text or '-'} -> {action_label}"
+            return f"internal | {label_text} -> {action_label}"
         return "-"
 
     def _payload_from_broadcast(broadcast) -> BroadcastDraftPayload:
@@ -194,7 +215,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         await target.answer(text)
 
     async def _show_preview_message(chat_id: int, broadcast_id: int, payload: BroadcastDraftPayload) -> None:
-        await send_broadcast_preview(bot, chat_id, payload)
+        await send_broadcast_preview(bot, chat_id, payload, language=await _admin_language(chat_id))
         await bot.send_message(
             chat_id,
             "Выберите действие с этой рассылкой.",
@@ -298,7 +319,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         await callback.answer()
         await answer_or_edit(
             callback,
-            "Отправьте текст сообщения для рассылки.",
+            _multilingual_prompt("Отправьте текст сообщения для рассылки."),
             reply_markup=_cancel_markup(),
         )
 
@@ -326,7 +347,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         if not text:
             await message.answer("Текст сообщения не должен быть пустым.")
             return
-        await state.update_data(message_text=text)
+        await state.update_data(message_text=pack_broadcast_value(text))
         data = await state.get_data()
         if data.get("edit_field") == "text":
             await _save_preview(message, state, message.from_user.id)
@@ -344,7 +365,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
             await _save_preview(message, state, message.from_user.id)
             return
         await state.set_state(AdminBroadcastState.waiting_caption)
-        await message.answer("Отправьте подпись / текст для фото-рассылки.", reply_markup=_cancel_markup())
+        await message.answer(_multilingual_prompt("Отправьте подпись / текст для фото-рассылки."), reply_markup=_cancel_markup())
 
     @router.message(AdminBroadcastState.waiting_photo)
     async def broadcast_photo_invalid_handler(message: Message) -> None:
@@ -359,7 +380,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         if not text:
             await message.answer("Подпись не должна быть пустой.")
             return
-        await state.update_data(message_text=text)
+        await state.update_data(message_text=pack_broadcast_value(text))
         data = await state.get_data()
         if data.get("edit_field") == "text":
             await _save_preview(message, state, message.from_user.id)
@@ -397,7 +418,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         await state.set_state(AdminBroadcastState.waiting_button_text)
         await state.update_data(button_type=BroadcastButtonType.URL.value, button_text=None, button_value=None)
         await callback.answer()
-        await answer_or_edit(callback, "Введите текст кнопки для ссылки.", reply_markup=_cancel_markup())
+        await answer_or_edit(callback, _multilingual_prompt("Введите текст кнопки для ссылки."), reply_markup=_cancel_markup())
 
     @router.callback_query(F.data == "admin:broadcasts:button_type:internal")
     async def broadcast_button_type_internal_handler(callback: CallbackQuery, state: FSMContext) -> None:
@@ -409,7 +430,11 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         await state.set_state(AdminBroadcastState.waiting_button_text)
         await state.update_data(button_type=BroadcastButtonType.INTERNAL_ACTION.value, button_text=None, button_value=None)
         await callback.answer()
-        await answer_or_edit(callback, "Введите текст кнопки для внутреннего сценария бота.", reply_markup=_cancel_markup())
+        await answer_or_edit(
+            callback,
+            _multilingual_prompt("Введите текст кнопки для внутреннего сценария бота."),
+            reply_markup=_cancel_markup(),
+        )
 
     @router.message(AdminBroadcastState.waiting_button_text)
     async def broadcast_button_text_handler(message: Message, state: FSMContext) -> None:
@@ -420,7 +445,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         if not button_text:
             await message.answer("Текст кнопки не должен быть пустым.")
             return
-        await state.update_data(button_text=button_text)
+        await state.update_data(button_text=pack_broadcast_value(button_text))
         data = await state.get_data()
         if data.get("button_type") == BroadcastButtonType.URL.value:
             await state.set_state(AdminBroadcastState.waiting_button_url)
@@ -477,7 +502,12 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         if broadcast is None:
             return
         await callback.answer("Отправляю тест.")
-        await send_broadcast_preview(bot, callback.from_user.id, _payload_from_broadcast(broadcast))
+        await send_broadcast_preview(
+            bot,
+            callback.from_user.id,
+            _payload_from_broadcast(broadcast),
+            language=await _admin_language(callback.from_user.id),
+        )
 
     @router.callback_query(F.data.startswith("admin:broadcasts:preview:send:"))
     async def broadcast_preview_send_handler(callback: CallbackQuery) -> None:
@@ -551,7 +581,11 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
         target_state = AdminBroadcastState.waiting_caption if broadcast.broadcast_type == BroadcastKind.PHOTO else AdminBroadcastState.waiting_text
         await state.set_state(target_state)
         await callback.answer()
-        prompt = "Отправьте новую подпись для фото-рассылки." if broadcast.broadcast_type == BroadcastKind.PHOTO else "Отправьте новый текст сообщения."
+        prompt = (
+            _multilingual_prompt("Отправьте новую подпись для фото-рассылки.")
+            if broadcast.broadcast_type == BroadcastKind.PHOTO
+            else _multilingual_prompt("Отправьте новый текст сообщения.")
+        )
         await answer_or_edit(callback, prompt, reply_markup=_cancel_markup())
 
     @router.callback_query(F.data.startswith("admin:broadcasts:edit:photo:"))
@@ -649,11 +683,13 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
             await answer_or_edit(callback, "Рассылка не найдена.", reply_markup=_menu_markup())
             return
         sent_at = broadcast.sent_at.strftime("%Y-%m-%d %H:%M") if broadcast.sent_at else "-"
+        message_text = resolve_broadcast_value(broadcast.message_text, "ru") or "-"
+        short_text = short_broadcast_text(broadcast.message_text, language="ru")
         text = (
             f"<b>Рассылка #{broadcast.id}</b>\n\n"
             f"Тип: <b>{_broadcast_kind_label(broadcast.broadcast_type)}</b>\n"
             f"Статус: <b>{_broadcast_status_label(broadcast.status)}</b>\n"
-            f"Текст: {broadcast.message_text or '-'}\n"
+            f"Текст: {message_text}\n"
             f"Фото: <code>{broadcast.photo_file_id or '-'}</code>\n"
             f"Кнопка: {_button_label(broadcast.button_type, broadcast.button_text, broadcast.button_value)}\n"
             f"Создана: <b>{broadcast.created_at.strftime('%Y-%m-%d %H:%M')}</b>\n"
@@ -661,7 +697,7 @@ def build_admin_broadcast_router(app: AppContext, bot: Bot) -> Router:
             f"Получателей: <b>{broadcast.total_recipients}</b>\n"
             f"Успешно: <b>{broadcast.success_count}</b>\n"
             f"Ошибок: <b>{broadcast.failed_count}</b>\n"
-            f"Кратко: {short_broadcast_text(broadcast.message_text)}"
+            f"Кратко: {short_text}"
         )
         await answer_or_edit(
             callback,

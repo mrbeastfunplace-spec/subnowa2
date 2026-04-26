@@ -256,6 +256,130 @@ def build_admin_router(app: AppContext, bot: Bot) -> Router:
             ]
         )
 
+    def _user_sum_text(value: Decimal | int | float | str, language: str) -> str:
+        amount_text = format_money(value, "сум").replace(" сум", "")
+        if language == "uz":
+            return f"{amount_text} so'm"
+        if language == "en":
+            return f"{amount_text} UZS"
+        return f"{amount_text} сум"
+
+    def _payment_method_title(code: str | None, language: str) -> str:
+        normalized = (code or "").strip().lower()
+        if normalized == "card":
+            return "Humo / Uzcard"
+        if normalized == "usdt_trc20":
+            return "Kriptovalyuta" if language == "uz" else ("Cryptocurrency" if language == "en" else "Криптовалюта")
+        if normalized == "click":
+            return "Click"
+        return code or "-"
+
+    def _topup_approved_user_text(language: str, amount, new_balance) -> str:
+        if language == "uz":
+            return (
+                "✅ Balans to'ldirildi\n\n"
+                f"💰 Kiritildi: {_user_sum_text(amount, language)}\n"
+                f"💳 Yangi balansingiz: {_user_sum_text(new_balance, language)}\n\n"
+                "Endi xaridni rasmiylashtirishingiz mumkin."
+            )
+        if language == "en":
+            return (
+                "✅ Balance credited\n\n"
+                f"💰 Added: {_user_sum_text(amount, language)}\n"
+                f"💳 Your new balance: {_user_sum_text(new_balance, language)}\n\n"
+                "You can now complete a purchase."
+            )
+        return (
+            "✅ Баланс пополнен\n\n"
+            f"💰 Зачислено: {_user_sum_text(amount, language)}\n"
+            f"💳 Ваш новый баланс: {_user_sum_text(new_balance, language)}\n\n"
+            "Теперь вы можете оформить покупку."
+        )
+
+    def _topup_rejected_user_text(language: str, amount, payment_method: str | None) -> str:
+        method_title = _payment_method_title(payment_method, language)
+        if language == "uz":
+            return (
+                "❌ To'ldirish so'rovi rad etildi\n\n"
+                f"💰 Summa: {_user_sum_text(amount, language)}\n"
+                f"💳 Usul: {method_title}\n\n"
+                "Agar siz allaqachon to'lagan bo'lsangiz, yordam bilan bog'laning."
+            )
+        if language == "en":
+            return (
+                "❌ Top-up request rejected\n\n"
+                f"💰 Amount: {_user_sum_text(amount, language)}\n"
+                f"💳 Method: {method_title}\n\n"
+                "If you have already paid, please contact support."
+            )
+        return (
+            "❌ Заявка на пополнение отклонена\n\n"
+            f"💰 Сумма: {_user_sum_text(amount, language)}\n"
+            f"💳 Способ: {method_title}\n\n"
+            "Если вы уже оплатили, свяжитесь с поддержкой."
+        )
+
+    def _refund_user_text(language: str, order: Order, new_balance) -> str:
+        service_title = escape(order.service_name_snapshot or order.product_name_snapshot or "Order")
+        product_type = escape(order.product_type_snapshot or "-")
+        if language == "uz":
+            return (
+                "↩️ Buyurtma bekor qilindi\n\n"
+                f"💎 Xizmat: {service_title}\n"
+                f"📦 Turi: {product_type}\n"
+                f"💰 Balansga qaytarildi: {_user_sum_text(order.amount, language)}\n"
+                f"💳 Joriy balans: {_user_sum_text(new_balance, language)}"
+            )
+        if language == "en":
+            return (
+                "↩️ Order cancelled\n\n"
+                f"💎 Service: {service_title}\n"
+                f"📦 Type: {product_type}\n"
+                f"💰 Refunded to balance: {_user_sum_text(order.amount, language)}\n"
+                f"💳 Current balance: {_user_sum_text(new_balance, language)}"
+            )
+        return (
+            "↩️ Заказ отменён\n\n"
+            f"💎 Сервис: {service_title}\n"
+            f"📦 Тип: {product_type}\n"
+            f"💰 Возврат на баланс: {_user_sum_text(order.amount, language)}\n"
+            f"💳 Текущий баланс: {_user_sum_text(new_balance, language)}"
+        )
+
+    def _delivery_user_text(language: str, order: Order, delivery_content: str) -> str:
+        service_title = escape(order.service_name_snapshot or order.product_name_snapshot or "Order")
+        product_type = escape(order.product_type_snapshot or "-")
+        content = escape(delivery_content)
+        if language == "uz":
+            return (
+                "✅ Buyurtmangiz tasdiqlandi\n\n"
+                f"💎 Xizmat: {service_title}\n"
+                f"📦 Turi: {product_type}\n"
+                f"💰 To'langan: {_user_sum_text(order.amount, language)}\n\n"
+                "Buyurtma ma'lumotlari:\n"
+                f"{content}\n\n"
+                "Xaridingiz uchun rahmat!"
+            )
+        if language == "en":
+            return (
+                "✅ Your order has been confirmed\n\n"
+                f"💎 Service: {service_title}\n"
+                f"📦 Type: {product_type}\n"
+                f"💰 Paid: {_user_sum_text(order.amount, language)}\n\n"
+                "Order details:\n"
+                f"{content}\n\n"
+                "Thank you for your purchase!"
+            )
+        return (
+            "✅ Ваш заказ подтверждён\n\n"
+            f"💎 Сервис: {service_title}\n"
+            f"📦 Тип: {product_type}\n"
+            f"💰 Оплачено: {_user_sum_text(order.amount, language)}\n\n"
+            "Данные по заказу:\n"
+            f"{content}\n\n"
+            "Спасибо за покупку!"
+        )
+
     async def _send_user_message(telegram_id: int, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         try:
             await bot.send_message(telegram_id, text, reply_markup=reply_markup)
@@ -541,14 +665,12 @@ def build_admin_router(app: AppContext, bot: Bot) -> Router:
             await session.commit()
             user = topup.user
             new_balance = transaction.balance_after
+            language = await get_user_language(session, user.telegram_id, app.settings.default_language) if user is not None else "ru"
         await callback.answer("Баланс пополнен")
         if user is not None:
             await _send_user_message(
                 user.telegram_id,
-                "✅ Баланс пополнен\n\n"
-                f"💰 Зачислено: {format_money(topup.amount, 'сум')}\n"
-                f"💳 Ваш новый баланс: {format_money(new_balance, 'сум')}\n\n"
-                "Теперь вы можете оформить покупку.",
+                _topup_approved_user_text(language, topup.amount, new_balance),
             )
         await _show_topup_queue(callback, 0)
 
@@ -571,14 +693,12 @@ def build_admin_router(app: AppContext, bot: Bot) -> Router:
             await reject_topup(session, topup, callback.from_user.id)
             await session.commit()
             user = topup.user
+            language = await get_user_language(session, user.telegram_id, app.settings.default_language) if user is not None else "ru"
         await callback.answer("Заявка отклонена")
         if user is not None:
             await _send_user_message(
                 user.telegram_id,
-                "❌ Заявка на пополнение отклонена\n\n"
-                f"💰 Сумма: {format_money(topup.amount, 'сум')}\n"
-                f"💳 Способ: {topup.payment_method}\n\n"
-                "Если вы уже оплатили, свяжитесь с поддержкой.",
+                _topup_rejected_user_text(language, topup.amount, topup.payment_method),
             )
         await _show_topup_queue(callback, 0)
 
@@ -668,11 +788,7 @@ def build_admin_router(app: AppContext, bot: Bot) -> Router:
         if result.user is not None:
             await _send_user_message(
                 result.user.telegram_id,
-                "↩️ Заказ отменён\n\n"
-                f"💎 Сервис: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
-                f"📦 Тип: {escape(order.product_type_snapshot or '-')}\n"
-                f"💰 Возврат на баланс: {format_money(order.amount, 'сум')}\n"
-                f"💳 Текущий баланс: {format_money(result.user.balance, 'сум')}",
+                _refund_user_text(language, order, result.user.balance),
                 reply_markup=_user_menu_markup(language),
             )
         await answer_or_edit(callback, _render_order_text(order), reply_markup=_order_actions_markup(order))
@@ -1798,13 +1914,7 @@ def build_admin_router(app: AppContext, bot: Bot) -> Router:
         if order.user is not None:
             await _send_user_message(
                 order.user.telegram_id,
-                "✅ Ваш заказ подтверждён\n\n"
-                f"💎 Сервис: {escape(order.service_name_snapshot or order.product_name_snapshot)}\n"
-                f"📦 Тип: {escape(order.product_type_snapshot or '-')}\n"
-                f"💰 Оплачено: {format_money(order.amount, 'сум')}\n\n"
-                "Данные по заказу:\n"
-                f"{escape(delivery_content)}\n\n"
-                "Спасибо за покупку!",
+                _delivery_user_text(language, order, delivery_content),
                 reply_markup=_user_order_markup(language, order),
             )
         await message.answer("Заказ выполнен и отправлен клиенту.")
