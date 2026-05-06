@@ -695,14 +695,35 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
     async def open_adobe_handler(callback: CallbackQuery, state: FSMContext) -> None:
         await _show_seeded_product(callback, state, product_code="adobe_template")
 
+    @router.callback_query(F.data == "open_claude_ai")
+    async def open_claude_ai_handler(callback: CallbackQuery, state: FSMContext) -> None:
+        await _show_seeded_product(callback, state, product_code="claude_ai_month")
+
     @router.callback_query(F.data == "open_spotify")
     async def open_spotify_handler(callback: CallbackQuery, state: FSMContext) -> None:
-        await _show_seeded_product(
-            callback,
-            state,
-            product_code="spotify_premium",
-            show_unavailable_alert=True,
-        )
+        async with app.session_factory() as session:
+            language = await get_user_language(session, callback.from_user.id, app.settings.default_language)
+            user = await get_user_by_telegram_id(session, callback.from_user.id)
+        await state.clear()
+        await callback.answer()
+        if language == "uz":
+            user_msg = "✅ So'rovingiz qabul qilindi.\n\nSpotify Premium tez orada katalogga qo'shiladi!"
+        elif language == "en":
+            user_msg = "✅ Your request has been accepted.\n\nSpotify Premium will be added to the catalog soon!"
+        else:
+            user_msg = "✅ Ваша заявка принята.\n\nSpotify Premium скоро появится в каталоге!"
+        await bot.send_message(callback.from_user.id, user_msg)
+        if user:
+            admin_text = (
+                f"ℹ️ Пользователь хочет Spotify Premium\n\n"
+                f"👤 @{user.username or 'нет'}\n"
+                f"🆔 ID: <code>{user.telegram_id}</code>"
+            )
+            for admin_id in app.settings.admin_ids:
+                try:
+                    await bot.send_message(admin_id, admin_text)
+                except Exception:
+                    continue
 
     @router.callback_query(F.data.in_({"open_other", "custom:open"}))
     async def open_other_handler(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1222,7 +1243,7 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
         if product.code == "capcut_personal_month":
             await capcut_personal_handler(callback, state)
             return
-        if product.code in {"google_ai_pro_gemini", "grok_template", "adobe_template", "spotify_premium"}:
+        if product.code in {"google_ai_pro_gemini", "grok_template", "adobe_template", "spotify_premium", "claude_ai_month"}:
             await _show_seeded_product(
                 callback,
                 state,
@@ -1271,6 +1292,16 @@ def build_catalog_router(app: AppContext, bot: Bot) -> Router:
                 return
             if product.code == "capcut_personal_month":
                 await buy_capcut_personal_handler(callback, state)
+                return
+            if product.code in {"google_ai_pro_gemini", "grok_template", "adobe_template", "claude_ai_month"}:
+                await _start_balance_checkout(
+                    callback,
+                    state,
+                    app,
+                    product=product,
+                    language=language,
+                    back_callback=f"product:view:{product_id}",
+                )
                 return
             if (product.extra_data or {}).get("temporarily_unavailable"):
                 await callback.answer(ui_text(language, "spotify_unavailable"), show_alert=True)

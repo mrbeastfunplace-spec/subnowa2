@@ -655,14 +655,14 @@ async def ensure_commerce_products(session: AsyncSession) -> None:
             "default_price": Decimal("70000.00"),
             "replace_prices": set(),
             "extra_data": {
-                "icon_custom_emoji_id": "",
+                "icon_custom_emoji_id": "5330337435500951363",
             },
             "force_translation_update": True,
             "translations": {
                 "ru": {
                     "name": "Super Grok",
                     "description": (
-                        "👤 Super Grok — Личный доступ\n"
+                        "<tg-emoji emoji-id='5330337435500951363'>🤖</tg-emoji> Super Grok — Личный доступ\n"
                         "💰 Цена: 70 000 сум\n"
                         "📅 Срок доступа: 30 дней\n\n"
                         "Что вы получаете:\n"
@@ -678,7 +678,7 @@ async def ensure_commerce_products(session: AsyncSession) -> None:
                 "uz": {
                     "name": "Super Grok",
                     "description": (
-                        "👤 Super Grok — Shaxsiy kirish\n"
+                        "<tg-emoji emoji-id='5330337435500951363'>🤖</tg-emoji> Super Grok — Shaxsiy kirish\n"
                         "💰 Narxi: 70 000 so‘m\n"
                         "📅 Foydalanish muddati: 30 kun\n\n"
                         "Nimalarga ega bo‘lasiz:\n"
@@ -694,7 +694,7 @@ async def ensure_commerce_products(session: AsyncSession) -> None:
                 "en": {
                     "name": "Super Grok",
                     "description": (
-                        "👤 Super Grok — Personal Access\n"
+                        "<tg-emoji emoji-id='5330337435500951363'>🤖</tg-emoji> Super Grok — Personal Access\n"
                         "💰 Price: 70,000 UZS\n"
                         "📅 Access period: 30 days\n\n"
                         "What you get:\n"
@@ -886,6 +886,70 @@ async def ensure_commerce_products(session: AsyncSession) -> None:
                         "📅 Status: temporarily unavailable\n\n"
                         "Spotify Premium is temporarily unavailable.\n"
                         "It will be available soon."
+                    ),
+                },
+            },
+        },
+        {
+            "code": "claude_ai_month",
+            "category_code": "saas",
+            "status": ProductStatus.ACTIVE.value,
+            "service_name": "Claude AI Pro",
+            "product_type": "personal_account",
+            "workflow_type": "manual",
+            "delivery_type": "manual",
+            "show_in_catalog": True,
+            "sort_order": 35,
+            "default_price": Decimal("70000.00"),
+            "replace_prices": set(),
+            "extra_data": {
+                "icon_custom_emoji_id": "",
+            },
+            "force_translation_update": True,
+            "translations": {
+                "ru": {
+                    "name": "Claude AI Pro",
+                    "description": (
+                        "👤 Claude AI Pro — Личный доступ\n"
+                        "💰 Цена: 70 000 сум\n"
+                        "📅 Срок доступа: 30 дней\n\n"
+                        "Что вы получаете:\n"
+                        "✅ Доступ к Claude AI Pro на месяц\n"
+                        "✅ Продвинутый AI-ассистент для работы и учёбы\n"
+                        "✅ Поддержка длинных контекстов и сложных задач\n"
+                        "✅ Стабильная работа на весь оплаченный период\n"
+                        "✅ Гарантия 30 дней\n"
+                        "✅ Техническая поддержка 24/7"
+                    ),
+                },
+                "uz": {
+                    "name": "Claude AI Pro",
+                    "description": (
+                        "👤 Claude AI Pro — Shaxsiy kirish\n"
+                        "💰 Narxi: 70 000 so'm\n"
+                        "📅 Foydalanish muddati: 30 kun\n\n"
+                        "Nimalarga ega bo'lasiz:\n"
+                        "✅ Claude AI Pro'dan 1 oy davomida foydalanish\n"
+                        "✅ Ish va o'qish uchun rivojlangan AI-assistent\n"
+                        "✅ Uzun kontekstlar va murakkab vazifalar uchun qo'llab-quvvatlash\n"
+                        "✅ To'langan muddat davomida barqaror ishlash\n"
+                        "✅ 30 kunlik kafolat\n"
+                        "✅ 24/7 texnik yordam"
+                    ),
+                },
+                "en": {
+                    "name": "Claude AI Pro",
+                    "description": (
+                        "👤 Claude AI Pro — Personal Access\n"
+                        "💰 Price: 70,000 UZS\n"
+                        "📅 Access period: 30 days\n\n"
+                        "What you get:\n"
+                        "✅ Access to Claude AI Pro for one month\n"
+                        "✅ Advanced AI assistant for work and study\n"
+                        "✅ Support for long contexts and complex tasks\n"
+                        "✅ Stable access for the full paid period\n"
+                        "✅ 30-day warranty\n"
+                        "✅ 24/7 technical support"
                     ),
                 },
             },
@@ -1178,10 +1242,11 @@ async def seed_product_payment_links(session: AsyncSession) -> None:
         "chatgpt_ready_month": ["click", "card", "usdt_trc20"],
         "capcut_pro_month": ["click", "card", "usdt_trc20"],
         "capcut_personal_month": ["click", "card"],
-        "google_ai_pro_gemini": ["click", "card"],
-        "grok_template": ["click", "card"],
-        "adobe_template": ["click", "card"],
+        "google_ai_pro_gemini": [],
+        "grok_template": [],
+        "adobe_template": [],
         "spotify_premium": [],
+        "claude_ai_month": [],
     }
 
     for product_code, payment_codes in link_map.items():
@@ -1199,7 +1264,7 @@ async def seed_product_payment_links(session: AsyncSession) -> None:
             link.sort_order = index * 10
             existing_pairs.add((product.id, payment.id))
 
-    managed_codes = {"google_ai_pro_gemini", "grok_template", "adobe_template", "spotify_premium"}
+    managed_codes = {"google_ai_pro_gemini", "grok_template", "adobe_template", "spotify_premium", "claude_ai_month"}
     managed_product_ids = {
         product.id: {payments[code].id for code in link_map[product_code] if code in payments}
         for product_code in managed_codes
