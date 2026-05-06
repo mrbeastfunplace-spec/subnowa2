@@ -652,7 +652,7 @@ DEFAULT_LAYOUTS = [
             {"code": "profile", "action_type": ButtonActionType.CALLBACK.value, "action_value": "menu:profile", "style": "default", "row_index": 1, "sort_order": 10, "translations": {"ru": "👤 Профиль", "uz": "👤 Profil", "en": "👤 Profile"}},
             {"code": "languages", "action_type": ButtonActionType.CALLBACK.value, "action_value": "menu:languages", "style": "default", "row_index": 1, "sort_order": 20, "translations": {"ru": "🌐 Языки", "uz": "🌐 Tillar", "en": "🌐 Languages"}},
             {"code": "support", "action_type": ButtonActionType.URL.value, "action_value": "__SUPPORT_URL__", "style": "default", "row_index": 2, "sort_order": 10, "translations": {"ru": "💬 Задать вопрос", "uz": "💬 Savol berish", "en": "💬 Support"}},
-            {"code": "admin_profile", "action_type": ButtonActionType.URL.value, "action_value": "https://t.me/subnowa", "style": "default", "row_index": 2, "sort_order": 20, "translations": {"ru": "ChatGPT Plus ChatGPT", "uz": "ChatGPT Plus ChatGPT", "en": "ChatGPT Plus ChatGPT"}},
+            {"code": "admin_profile", "action_type": ButtonActionType.URL.value, "action_value": "https://t.me/subnowa", "style": "default", "row_index": 2, "sort_order": 20, "translations": {"ru": "ADMIN", "uz": "ADMIN", "en": "ADMIN"}},
             {"code": "about", "action_type": ButtonActionType.URL.value, "action_value": "__ABOUT_URL__", "style": "default", "row_index": 3, "sort_order": 10, "translations": {"ru": "ℹ️ О нас", "uz": "ℹ️ Biz haqimizda", "en": "ℹ️ About us"}},
             {"code": "faq", "action_type": ButtonActionType.CALLBACK.value, "action_value": "menu:faq", "style": "default", "row_index": 3, "sort_order": 20, "translations": {"ru": "❓ FAQ", "uz": "❓ FAQ", "en": "❓ FAQ"}},
         ],

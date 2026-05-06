@@ -1,0 +1,3 @@
+# Ignore everything — Claude Code reads only CLAUDE.md for project context
+*
+!CLAUDE.md

@@ -119,6 +119,7 @@ _REPLACEABLE_LAYOUT_DEFAULTS: dict[tuple[str, str], dict[str, str]] = {
     ("main_menu", "support"): {"ru": "Поддержка", "uz": "Qo'llab-quvvatlash", "en": "Support"},
     ("main_menu", "about"): {"ru": "О нас", "uz": "Biz haqimizda", "en": "About"},
     ("main_menu", "faq"): {"ru": "FAQ", "uz": "FAQ", "en": "FAQ"},
+    ("main_menu", "admin_profile"): {"ru": "ChatGPT Plus ChatGPT", "uz": "ChatGPT Plus ChatGPT", "en": "ChatGPT Plus ChatGPT"},
 }
 
 
