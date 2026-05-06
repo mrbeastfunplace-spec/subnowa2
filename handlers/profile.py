@@ -35,12 +35,9 @@ from utils.messages import answer_or_edit
 def _to_decimal(value: Decimal | int | float | str) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"))
 
-
-<<<<<<< HEAD
 MIN_TOPUP_AMOUNT = Decimal("50000.00")
 =======
 MIN_TOPUP_AMOUNT = Decimal("80000.00")
->>>>>>> d3faaf30147227aaa2159e2525d47d7f861a957d
 CLICK_QR_IMAGE_PATH = Path(__file__).resolve().parents[1] / "media" / "click.png.jpg"
 
 
@@ -126,11 +123,9 @@ def _topup_amounts_markup_local(language: str) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-<<<<<<< HEAD
             [InlineKeyboardButton(text=amount_label(50000), callback_data="topup:amount:50000")],
 =======
             [InlineKeyboardButton(text=amount_label(80000), callback_data="topup:amount:80000")],
->>>>>>> d3faaf30147227aaa2159e2525d47d7f861a957d
             [InlineKeyboardButton(text=amount_label(150000), callback_data="topup:amount:150000")],
             [InlineKeyboardButton(text=amount_label(200000), callback_data="topup:amount:200000")],
             [InlineKeyboardButton(text=_topup_other_amount_text(language), callback_data="topup:amount:custom")],
